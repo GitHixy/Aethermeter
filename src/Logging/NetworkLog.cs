@@ -31,7 +31,8 @@ public enum LiveLogState
 ///
 /// The lines that come straight from the server are taken where the game handles them: abilities
 /// (21/22) from ActionEffect, DoT/HoT ticks (24) from ProcessHotDot, director updates (33: commence,
-/// wipe, clear) from ProcessDirectorUpdate. The rest is the world as the client sees it, compared
+/// wipe, clear) from ProcessDirectorUpdate. Effect results (37), which FFLogs needs to count a hit,
+/// follow each 21/22 once its target's HP moves. The rest is the world as the client sees it, compared
 /// frame to frame: combatants appearing and leaving (03/04), statuses (26/30), casts (20/23), deaths
 /// (25), the zone, the player, the party and their stats (01/02/11/12).
 ///
@@ -69,6 +70,14 @@ public sealed unsafe class NetworkLog : IDisposable
 
     private readonly record struct PendingCancel(uint Caster, string Name, uint Action, double Clock, DateTimeOffset At);
 
+    /// <summary>A target of a 21/22 line still waiting for its 37, by the action's global sequence.</summary>
+    private readonly record struct PendingResult(uint Target, uint Sequence, double Clock);
+
+    /// <summary>Effects land on the next server update at the earliest; ACT's 37s follow their 21s by about half a second.</summary>
+    private const double ResultMinDelay = 0.1;
+    /// <summary>Effects that move no HP (buffs, a heal on a full bar) are confirmed after this long.</summary>
+    private const double ResultTimeout = 0.8;
+
     private readonly Configuration config;
     private readonly Func<double> clock;
     private readonly Func<bool> meterInCombat;
@@ -78,6 +87,10 @@ public sealed unsafe class NetworkLog : IDisposable
     private readonly Dictionary<uint, (uint Action, double Clock)> lastAction = new();
     private readonly Dictionary<uint, (uint Id, string Name)> lastAttacker = new();
     private readonly List<PendingCancel> cancels = new();
+    private readonly List<PendingResult> results = new();
+    /// <summary>Each waiting target's HP when its last 37 was written (or when it was first hit).</summary>
+    private readonly Dictionary<uint, uint> resultHp = new();
+    private readonly HashSet<uint> resultsSettled = new();
     private readonly List<(Encounter Pull, double At)> pendingSaves = new();
 
     private LogFile? live;
@@ -163,6 +176,8 @@ public sealed unsafe class NetworkLog : IDisposable
             tracked.Clear();
             lastAttacker.Clear();
             cancels.Clear();
+            results.Clear();
+            resultHp.Clear();
             player = 0;
             partyKey = statsKey = string.Empty;
             actCombat = gameCombat = null;
@@ -208,6 +223,8 @@ public sealed unsafe class NetworkLog : IDisposable
             gameCombat = inGame;
         }
 
+        // Results before the world: a hit's confirmation comes before what it caused (a death, a status lost).
+        SettleResults(now);
         PollWorld(now);
         SettleCancels(now);
         SavePending(now);
@@ -363,7 +380,7 @@ public sealed unsafe class NetworkLog : IDisposable
 
         void Tail(LogLine l, int index, int total)
         {
-            Actor(l, caster);
+            Resources(l, caster);
             l.Str(header->GlobalSequence.ToString("X8")).Dec(index).Dec(total);
             if (ownerId != 0) l.Id(ownerId).Str(NameOf(ownerId, null));
             else l.Str("00").Str(string.Empty);
@@ -400,10 +417,63 @@ public sealed unsafe class NetworkLog : IDisposable
                     lastAttacker[(fx.Param4 & 0x80) != 0 ? casterId : targetId] = (casterId, casterName);
             }
 
-            Actor(l, target);
+            Resources(l, target);
             Tail(l, i, count);
             Emit(l);
+
+            if (targetId is 0 or NoTarget) continue;
+            if (!results.Exists(r => r.Target == targetId))
+                resultHp[targetId] = (target as ICharacter)?.CurrentHp ?? 0;
+            results.Add(new PendingResult(targetId, (uint)header->GlobalSequence, clock()));
         }
+    }
+
+    /// <summary>
+    /// 37 lines: the server's word that an action's effects were applied, with the target's HP after
+    /// them. FFLogs counts a 21/22 as damage or healing done only once its 37 arrives (by sequence).
+    /// The game handles that packet in a function FFXIVClientStructs doesn't expose, so the line is
+    /// written here instead: when the target's HP moves, the oldest action waiting on it has landed;
+    /// effects that move no HP are confirmed after <see cref="ResultTimeout"/>.
+    /// </summary>
+    private void SettleResults(double now)
+    {
+        resultsSettled.Clear();
+        for (var i = 0; i < results.Count; i++)
+        {
+            var p = results[i];
+            var age = now - p.Clock;
+            var ch = Plugin.ObjectTable.SearchByEntityId(p.Target) as ICharacter;
+            var moved = ch is not null && resultHp.TryGetValue(p.Target, out var seen) && ch.CurrentHp != seen
+                        && !resultsSettled.Contains(p.Target);
+            if (age < ResultTimeout && !(moved && age >= ResultMinDelay)) continue;
+
+            Emit(Line37(p, ch));
+            if (ch is not null) resultHp[p.Target] = ch.CurrentHp;
+            resultsSettled.Add(p.Target);
+            results.RemoveAt(i--);
+        }
+    }
+
+    /// <summary>Writes every 37 still waiting on one target now, oldest first.</summary>
+    private void FlushResults(uint target)
+    {
+        var ch = Plugin.ObjectTable.SearchByEntityId(target) as ICharacter;
+        for (var i = 0; i < results.Count; i++)
+        {
+            if (results[i].Target != target) continue;
+            Emit(Line37(results[i], ch));
+            results.RemoveAt(i--);
+        }
+
+        if (ch is not null) resultHp[target] = ch.CurrentHp;
+    }
+
+    private LogLine Line37(PendingResult p, ICharacter? ch)
+    {
+        var l = new LogLine(37, DateTimeOffset.Now).Id(p.Target).Str(NameOf(p.Target, ch)).Id(p.Sequence);
+        if (ch is null) return l.Blank(10);
+        return l.Dec(ch.CurrentHp).Dec(ch.MaxHp).Dec(ch.CurrentMp).Dec(ch.MaxMp).Dec(ch.ShieldPercentage).Blank()
+            .Pos(ch.Position, ch.Rotation);
     }
 
     public void OnTick(uint targetId, uint statusId, bool heal, uint value, uint sourceId, int damageType)
@@ -429,16 +499,7 @@ public sealed unsafe class NetworkLog : IDisposable
         Emit(new LogLine(33, DateTimeOffset.Now).Id(instance).Id(command).Hex2(a1).Hex2(a2).Hex2(a3).Hex2(a4));
     }
 
-    /// <summary>HP, MP and position as the 21/22 lines carry them, or blanks when the actor isn't loaded.</summary>
-    private static void Actor(LogLine l, IGameObject? obj)
-    {
-        if (obj is ICharacter ch)
-            l.Dec(ch.CurrentHp).Dec(ch.MaxHp).Dec(ch.CurrentMp).Dec(ch.MaxMp).Dec(0).Dec(1000).Pos(ch.Position, ch.Rotation);
-        else
-            l.Blank(10);
-    }
-
-    /// <summary>The same block as 24 lines carry it, with the two unknown fields left blank.</summary>
+    /// <summary>HP, MP and position, with the two unknown fields left blank as ACT does; all blank when the actor isn't loaded.</summary>
     private static void Resources(LogLine l, IGameObject? obj)
     {
         if (obj is ICharacter ch)
@@ -480,7 +541,17 @@ public sealed unsafe class NetworkLog : IDisposable
             if (dead && !t.Dead)
             {
                 var (killer, killerName) = lastAttacker.GetValueOrDefault(id, (NoTarget, string.Empty));
-                Emit(new LogLine(25, DateTimeOffset.Now).Id(id).Str(t.Info.Name).Id(killer).Str(killerName));
+                // A summon running out (a Dark Knight's Esteem) drops to 0 HP too, but nothing killed it.
+                if (killer != NoTarget || t.Info.OwnerId == 0)
+                {
+                    // FFLogs only takes a death from someone it already knows is at 0 HP, as in ACT's logs,
+                    // where the HP reaches 0 well before the death line: the killing hit's 37 first, then
+                    // the HP itself (39), which also covers deaths to a DoT, then the death.
+                    FlushResults(id);
+                    Emit(new LogLine(39, DateTimeOffset.Now).Id(id).Str(t.Info.Name)
+                        .Dec(bc.CurrentHp).Dec(bc.MaxHp).Dec(bc.CurrentMp).Dec(bc.MaxMp).Blank(2).Pos(bc.Position, bc.Rotation));
+                    Emit(new LogLine(25, DateTimeOffset.Now).Id(id).Str(t.Info.Name).Id(killer).Str(killerName));
+                }
             }
 
             t.Dead = dead;
@@ -591,14 +662,27 @@ public sealed unsafe class NetworkLog : IDisposable
     // Setup lines
     // ------------------------------------------------------------------
 
+    /// <summary>
+    /// The version line. ACT writes "FFXIV_ACT_Plugin Version: 3.0.3.4 (build id)", and FFLogs uses it to
+    /// judge which logging plugin made the file. Aethermeter is not that plugin, so it says who it is
+    /// and which line layout it follows, and never borrows ACT's name or build id.
+    /// </summary>
     private static LogLine Line253()
-        => new LogLine(253, DateTimeOffset.Now).Str($"FFXIV PLUGIN VERSION: {FormatVersion}, CLIENT MODE: FFXIV");
+        => new LogLine(253, DateTimeOffset.Now).Str($"Aethermeter Version: {Plugin.Version}, ACT network log format {FormatVersion}");
 
+    /// <summary>
+    /// The zone, named as ACT names it: a duty by its Duty Finder name ("AAC Heavyweight M1",
+    /// "the Clyteum"), anywhere else by its place name ("Limsa Lominsa Lower Decks").
+    /// </summary>
     private LogLine Line01()
     {
         var name = string.Empty;
         if (Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.TerritoryType>().TryGetRow(zone, out var row))
-            name = row.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
+        {
+            name = row.ContentFinderCondition.ValueNullable?.Name.ExtractText() ?? string.Empty;
+            if (name.Length == 0) name = row.PlaceName.ValueNullable?.Name.ExtractText() ?? string.Empty;
+        }
+
         return new LogLine(1, DateTimeOffset.Now).Hex(zone).Str(name);
     }
 
@@ -630,11 +714,11 @@ public sealed unsafe class NetworkLog : IDisposable
 
         // BaseParam rows: STR 1, DEX 2, VIT 3, INT 4, MND 5, PIE 6, Tenacity 19, Attack Power 20,
         // Direct Hit 22, Critical Hit 27, Attack/Healing Magic Potency 33/34, Determination 44,
-        // Skill/Spell Speed 45/46.
+        // Skill/Spell Speed 45/46. Fifteen stats between the job and the content id, as ACT writes them.
         var l = new LogLine(12, DateTimeOffset.Now).Dec(ps->CurrentClassJobId)
             .Dec(At(1)).Dec(At(2)).Dec(At(3)).Dec(At(4)).Dec(At(5)).Dec(At(6))
             .Dec(At(20)).Dec(At(22)).Dec(At(27)).Dec(At(33)).Dec(At(34))
-            .Dec(At(44)).Dec(At(45)).Dec(At(46)).Dec(0).Dec(At(19)).Hex(ps->ContentId);
+            .Dec(At(44)).Dec(At(45)).Dec(At(46)).Dec(At(19)).Hex(ps->ContentId);
 
         // Everything after the timestamp: a new line is written only when a stat actually changes.
         var body = l.Body;
@@ -649,7 +733,7 @@ public sealed unsafe class NetworkLog : IDisposable
         if (i.OwnerId != 0) l.Id(i.OwnerId);
         else l.Str("0000");
         return l.Hex2(i.WorldId).Str(i.World).Dec(i.NameId).Dec(i.BaseId)
-            .Dec(i.Hp).Dec(i.MaxHp).Dec(i.Mp).Dec(i.MaxMp).Dec(0).Dec(0).Pos(i.Pos, i.Heading);
+            .Dec(i.Hp).Dec(i.MaxHp).Dec(i.Mp).Dec(i.MaxMp).Blank(2).Pos(i.Pos, i.Heading);
     }
 
     private string NameOf(uint id, IGameObject? obj)

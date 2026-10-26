@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Aethermeter.Models;
 
 namespace Aethermeter.Combat;
@@ -27,6 +28,7 @@ public sealed class TestFight
     private static readonly uint[] Heals = [124, 131, 135, 186, 189, 190, 3570];
 
     private readonly EncounterManager encounters;
+    private readonly CooldownTracker cooldowns;
     private readonly Random rng = new();
     private readonly Actor[] actors;
     private readonly Actor dummy = new() { EntityId = 0x40000001, Name = "Striking Dummy", Kind = ActorKind.Enemy };
@@ -42,9 +44,13 @@ public sealed class TestFight
 
     public bool Running => started >= 0;
 
-    public TestFight(EncounterManager encounters)
+    /// <summary>The made-up party, for the cooldown window while the test runs.</summary>
+    public IReadOnlyList<Actor> Members => actors;
+
+    public TestFight(EncounterManager encounters, CooldownTracker cooldowns)
     {
         this.encounters = encounters;
+        this.cooldowns = cooldowns;
         actors = new Actor[Party.Length];
         for (var i = 0; i < Party.Length; i++)
             actors[i] = new Actor { EntityId = 0x10000001u + (uint)i, Name = Party[i].Name, JobId = Party[i].Job, Kind = ActorKind.Player, Friendly = true };
@@ -52,6 +58,7 @@ public sealed class TestFight
 
     public void Start(double now)
     {
+        cooldowns.ResetRecasts();
         started = now;
         next = now;
         encounters.Simulating = true;
@@ -96,6 +103,12 @@ public sealed class TestFight
                     DirectHit = dh,
                 });
             }
+
+            // Cooldowns: each one goes out a few seconds after it's ready, so buffs bunch up at the start.
+            foreach (var who in actors)
+                foreach (var def in CooldownCatalog.For(who.JobId, _ => true))
+                    if (cooldowns.Remaining(who.EntityId, def, now) <= 0 && rng.NextDouble() < 0.05)
+                        cooldowns.Record(who, def.ActionId, now);
 
             if (rng.NextDouble() < 0.3)
                 encounters.Ingest(new CombatEvent

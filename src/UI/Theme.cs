@@ -372,11 +372,13 @@ public static class Theme
     }
 
     /// <summary>The Aethermeter mark: three rising bars in a rounded tile.</summary>
-    public static void Logo(ImDrawListPtr dl, Vector2 min, float size, float alpha = 1f)
+    public static void Logo(ImDrawListPtr dl, Vector2 min, float size, float alpha = 1f, Vector4? accent = null)
     {
+        var tint = accent ?? Aether;
+        var bright = accent is { } a ? Lighten(a, 0.4f) : AetherBright;
         var max = min + new Vector2(size, size);
-        dl.AddRectFilled(min, max, U32(Alpha(Aether, 0.16f), alpha), size * 0.24f);
-        dl.AddRect(min, max, U32(Alpha(Aether, 0.6f), alpha), size * 0.24f, ImDrawFlags.None, 1f);
+        dl.AddRectFilled(min, max, U32(Alpha(tint, 0.16f), alpha), size * 0.24f);
+        dl.AddRect(min, max, U32(Alpha(tint, 0.6f), alpha), size * 0.24f, ImDrawFlags.None, 1f);
 
         var pad = size * 0.24f;
         var bw = (size - pad * 2) / 3.6f;
@@ -385,7 +387,7 @@ public static class Theme
         {
             var bx = min.X + pad + i * bw * 1.3f;
             var top = max.Y - pad - (size - pad * 2) * heights[i];
-            dl.AddRectFilled(new Vector2(bx, top), new Vector2(bx + bw, max.Y - pad), U32(i == 2 ? AetherBright : Aether, alpha), 1f);
+            dl.AddRectFilled(new Vector2(bx, top), new Vector2(bx + bw, max.Y - pad), U32(i == 2 ? bright : tint, alpha), 1f);
         }
     }
 }

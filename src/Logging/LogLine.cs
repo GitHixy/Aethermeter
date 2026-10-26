@@ -59,14 +59,15 @@ public sealed class LogLine
     public string Body => sb.ToString();
 
     /// <summary>
-    /// The trailing hash. ACT's exact recipe isn't published; this is a stable SHA-256 of the line and
-    /// its number in the file, in the same 32-hex-digit shape. Readers use it as an opaque checksum.
+    /// The trailing hash, ACT's own recipe (checked against its logs): SHA-256 of the line up to and
+    /// including its last separator, followed by the line's 1-based number in the file, cut to the
+    /// first 16 lower-case hex digits. Readers can use it to tell a log hasn't been edited.
     /// </summary>
     public static string Hash(string body, long index)
     {
         Span<byte> digest = stackalloc byte[32];
         SHA256.HashData(Encoding.UTF8.GetBytes(body + index.ToString(Inv)), digest);
-        return Convert.ToHexString(digest[..16]).ToLowerInvariant();
+        return Convert.ToHexString(digest[..8]).ToLowerInvariant();
     }
 
     /// <summary>Line type of a stored body, read back from its prefix.</summary>

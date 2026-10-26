@@ -44,6 +44,9 @@ public sealed unsafe class CombatHooks : IDisposable
     /// <summary>Gets the raw lines for the FFLogs log, when it's recording.</summary>
     public Logging.NetworkLog? Log { get; set; }
 
+    /// <summary>Told about every action cast, for the party cooldowns window.</summary>
+    public CooldownTracker? Cooldowns { get; set; }
+
     public string? FailureReason { get; private set; }
     public bool IsActive => receiveHook?.IsEnabled == true;
     public bool TicksActive => tickHook?.IsEnabled == true;
@@ -135,6 +138,9 @@ public sealed unsafe class CombatHooks : IDisposable
         try
         {
             Log?.OnActionEffect(casterEntityId, header, effects, targetEntityIds);
+            // Type 1 is a regular action; items, mounts and the like start no recast we follow.
+            if (header != null && (int)header->ActionType == 1)
+                Cooldowns?.OnAction(casterEntityId, header->ActionId, clock());
             HandleEffects(casterEntityId, header, effects, targetEntityIds);
         }
         catch (Exception ex)

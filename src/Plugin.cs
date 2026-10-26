@@ -50,6 +50,7 @@ public sealed class Plugin : IDalamudPlugin
     public EventEmitter Emitter { get; }
     public TickAttributor Ticks { get; }
     public ShieldTracker Shields { get; }
+    public CooldownTracker Cooldowns { get; }
     public Names Names { get; }
     public Exporter Exporter { get; }
     public TestFight Test { get; }
@@ -61,6 +62,7 @@ public sealed class Plugin : IDalamudPlugin
     public BreakdownWindow BreakdownWindow { get; }
     public ConfigWindow ConfigWindow { get; }
     public ChangelogWindow ChangelogWindow { get; }
+    public CooldownWindow CooldownWindow { get; }
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
     public double Now => clock.Elapsed.TotalSeconds;
@@ -85,7 +87,9 @@ public sealed class Plugin : IDalamudPlugin
         Shields = new ShieldTracker(Actors, Emitter);
         Emitter.Shields = Shields;
         Hooks = new CombatHooks(Actors, () => Now, Emitter, Ticks);
-        Test = new TestFight(Encounters);
+        Cooldowns = new CooldownTracker(Actors);
+        Hooks.Cooldowns = Cooldowns;
+        Test = new TestFight(Encounters, Cooldowns);
         NetLog = new Logging.NetworkLog(Configuration, () => Now, () => Encounters.InCombat);
         Hooks.Log = NetLog;
         Cleaner = new Logging.LogCleaner(Configuration, () => [NetLog.Folder, NetLog.PullFolder], Exporter.Folder);
@@ -93,6 +97,7 @@ public sealed class Plugin : IDalamudPlugin
         BreakdownWindow = new BreakdownWindow(this);
         ConfigWindow = new ConfigWindow(this);
         ChangelogWindow = new ChangelogWindow(this);
+        CooldownWindow = new CooldownWindow(this);
 
         if (Configuration.Windows.Count == 0)
             Configuration.Windows.Add(new MeterWindowConfig());
@@ -104,7 +109,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Show or hide the meter\n/meter config → settings\n/meter reset → clear every segment\n/meter lock | unlock → lock or unlock every window\n/meter new → add a meter window\n/meter test → play a made-up fight to preview the meter\n/meter log → start or stop the live log for FFLogs\n/meter news → what's new",
+            HelpMessage = "Show or hide the meter\n/meter config → settings\n/meter reset → clear every segment\n/meter lock | unlock → lock or unlock every window\n/meter new → add a meter window\n/meter test → play a made-up fight to preview the meter\n/meter log → start or stop the live log for FFLogs\n/meter cd → show or hide party cooldowns\n/meter news → what's new",
         });
         CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand) { ShowInHelp = false });
 
@@ -157,6 +162,7 @@ public sealed class Plugin : IDalamudPlugin
 
         Encounters.Ended -= OnPullEnded;
         Encounters.Dispose();
+        Cooldowns.Dispose();
         BreakdownWindow.Dispose();
         ConfigWindow.Dispose();
         ChangelogWindow.Dispose();
@@ -189,6 +195,10 @@ public sealed class Plugin : IDalamudPlugin
             case "log":
                 ToggleLiveLog();
                 break;
+            case "cd":
+            case "cooldowns":
+                ToggleCooldowns();
+                break;
             case "news":
             case "changelog":
                 ChangelogWindow.ShowAll();
@@ -212,6 +222,12 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OpenConfig() => ConfigWindow.IsOpen = true;
 
+    public void ToggleCooldowns()
+    {
+        Configuration.Cooldowns.Open = !Configuration.Cooldowns.Open;
+        SaveSoon();
+    }
+
     private void ToggleMeters()
     {
         var show = !Meters.Any(m => m.Settings.Open);
@@ -231,7 +247,32 @@ public sealed class Plugin : IDalamudPlugin
         Emitter.Clear();
         Ticks.Clear();
         Shields.Clear();
+        Cooldowns.Clear();
         Names.Invalidate();
+    }
+
+    /// <summary>
+    /// Who the cooldown window lists: the test fight's party while it runs, otherwise you and your
+    /// party. Tanks first, then healers, then damage, as the party list orders them.
+    /// </summary>
+    public List<Actor> CooldownRoster()
+    {
+        IEnumerable<Actor> members = Test.Running
+            ? Test.Members
+            : Actors.Party.Select(Actors.Resolve).Where(a => a.Kind == ActorKind.Player);
+
+        return members
+            .OrderBy(a => GameData.JobInfo(a.JobId).Role switch
+            {
+                GameData.Role.Tank => 0,
+                GameData.Role.Healer => 1,
+                GameData.Role.Melee => 2,
+                GameData.Role.Ranged => 3,
+                GameData.Role.Caster => 4,
+                _ => 5,
+            })
+            .ThenBy(a => a.EntityId)
+            .ToList();
     }
 
     public void AddWindow(MeterMode mode)
@@ -407,6 +448,7 @@ public sealed class Plugin : IDalamudPlugin
                 // Copy: a window may close itself from its own menu.
                 foreach (var meter in Meters.ToArray())
                     meter.Draw();
+                CooldownWindow.Draw();
             }
 
             BreakdownWindow.Draw();

@@ -21,6 +21,15 @@ public sealed class LogFile : IDisposable
     {
         Path = path;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
+
+        // Reopening today's file appends to it: line numbers (and so hashes) carry on from its end.
+        if (File.Exists(path))
+        {
+            using var existing = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            using var reader = new StreamReader(existing);
+            while (reader.ReadLine() is not null) index++;
+        }
+
         var stream = new FileStream(path, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);
         writer = new StreamWriter(stream, new UTF8Encoding(false)) { AutoFlush = false };
     }

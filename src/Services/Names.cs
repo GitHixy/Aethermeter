@@ -45,6 +45,23 @@ public sealed class Names
         return name;
     }
 
+    /// <summary>
+    /// A party member outside any segment (the cooldown window). Same rules as <see cref="For(Combatant, Encounter)"/>,
+    /// with jobs numbered within <paramref name="roster"/>.
+    /// </summary>
+    public string For(Actor a, IReadOnlyList<Actor> roster)
+    {
+        if (a.IsLocalPlayer && config.ShowYou) return "You";
+        if (config.NameMode == NameMode.Full || a.Kind == ActorKind.Ally || a.IsLocalPlayer && config.KeepOwnName) return a.Name;
+        if (config.NameMode == NameMode.Initials) return Initials(a.Name);
+
+        var job = GameData.JobInfo(a.JobId);
+        var label = config.NameMode == NameMode.JobShort ? job.Abbreviation : job.Name;
+        if (label.Length == 0) label = "Player";
+        var same = roster.Where(r => r.JobId == a.JobId).OrderBy(r => r.EntityId).ToList();
+        return same.Count <= 1 ? label : $"{label} {same.FindIndex(r => r.EntityId == a.EntityId) + 1}";
+    }
+
     public void Invalidate() => segmentNames.Clear();
 
     /// <summary>

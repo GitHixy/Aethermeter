@@ -12,7 +12,7 @@ A combat meter for Final Fantasy XIV built on [Dalamud](https://github.com/goatc
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9kjUjWDBkJ)
 
 ![Dalamud API](https://img.shields.io/badge/Dalamud%20API-15-5ED9C7)
-![Version](https://img.shields.io/badge/version-0.1.0-F07D4F)
+![Version](https://img.shields.io/badge/version-0.1.1-F07D4F)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
 ---
@@ -29,9 +29,10 @@ A combat meter for Final Fantasy XIV built on [Dalamud](https://github.com/goatc
 
 - **Segments.** Every pull is its own segment, plus an Overall segment across all of them. Pick any past pull from the header.
 - **Breakdowns.** Click a bar for that player's abilities (hits, crit and direct-hit rates, average and biggest hit), damage taken, a DPS/HPS graph, and a recap of the seconds before each death.
+- **Party cooldowns.** Raid buffs, party mitigation, healing cooldowns and tank invulnerabilities for the whole party: a grid of icons that grey out and count down while recasting, or a timeline of the pull with every use and its recast. `/meter cd` or the meter's menu.
 - **Several windows.** Open as many meters as you like, each on its own view; lock them, or let clicks pass through to the game.
 - **Streamer mode.** Show other players by job ("Dragoon 2"), job abbreviation or initials, everywhere: bars, tooltips, breakdowns, death recaps, copied summaries and saved files.
-- **Your look.** Four bar styles, job, role or single-colour bars, fonts and sizes for names, numbers and header, opacity, spacing and rounding.
+- **Your look.** Five window presets, background colour and style, border, header, accent and text colours, a faint watermark; four bar styles, job, role or single-colour bars, fonts and sizes for names, numbers and header, opacity, spacing and rounding.
 - **Pets and allies.** Summons and pets count toward their owner; Trust and Duty Support allies show up as party members.
 - **Chocobos.** A chocobo companion is a combatant of its own, shown as "Bocchan (Kael Highwind)" in chocobo yellow, with the same chocobo icon the party list uses. In streamer mode its name becomes "Company Chocobo" and its rider is hidden like everyone else.
 
@@ -44,9 +45,11 @@ Aethermeter can write the fight as an ACT network log, the format FFLogs reads, 
 - **Your folder.** Pick any folder, use the default (`Documents\Aethermeter\FFXIVLogs`), or ACT's folder, which is where the Archon App looks first. Files are named `*_Aethermeter.log`, so they never mix with ACT's.
 - **Auto-clean.** Delete Aethermeter's logs older than 1 week, 2 weeks, 1 month or 3 months, on load and every six hours (and saved segment files too, if you like). ACT's own logs are never touched.
 
-What goes in: abilities and their raw effects (21/22), DoT/HoT ticks (24), director updates such as pull start, wipe and clear (33), combatants (03/04), statuses (26/30), casts (20/23), deaths (25), zone, player, party and stats (01/02/11/12), and combat state (260).
+What goes in: abilities and their raw effects (21/22) with their effect results (37), DoT/HoT ticks (24), HP at each death (39), director updates such as pull start, wipe and clear (33), combatants (03/04), statuses (26/30), casts (20/23), deaths (25), zone, player, party and stats (01/02/11/12), and combat state (260).
 
-> The log follows ACT's documented line format, but hasn't been confirmed against every FFLogs parser version yet. If an upload fails, please report it on Discord.
+> **Not for rankings.** The log follows ACT's network log format, but it is written by Aethermeter, not by ACT's FFXIV plugin, and it says so in its first line. FFLogs reads it and shows your pulls, then marks the report invalid for rankings, as it does for any log its logging-plugin check doesn't recognise. For ranked logs, use ACT or [IINACT](https://github.com/marzent/IINACT), which run ACT's own plugin. We're asking FFLogs whether a third-party writer can be supported.
+>
+> One line is reconstructed rather than read: the effect result (37) that confirms a hit landed. The game handles it in a function Aethermeter doesn't hook, so it is written when the target's HP moves, with the HP it moved to.
 
 ## Commands
 

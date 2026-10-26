@@ -46,6 +46,18 @@ public enum NumberFormat
     Full,
 }
 
+/// <summary>What sits behind the bars, on top of the background colour.</summary>
+public enum BackgroundStyle
+{
+    Solid,
+    /// <summary>A soft light falling from the header down.</summary>
+    Gradient,
+    /// <summary>A diagonal sheen across the top, like smoked glass.</summary>
+    Glass,
+    /// <summary>The accent colour glowing under the header.</summary>
+    Glow,
+}
+
 public enum ReducedMotionMode
 {
     System,
@@ -87,6 +99,34 @@ public sealed class MeterWindowConfig
     public bool ClickThrough { get; set; }
     public Vector2 Position { get; set; } = new(60, 320);
     public Vector2 Size { get; set; } = new(300, 220);
+}
+
+public enum CooldownView
+{
+    /// <summary>Each member's cooldowns as icons, greyed with a countdown while recasting.</summary>
+    Grid,
+    /// <summary>The pull on a time axis, with each use and its recast.</summary>
+    Timeline,
+}
+
+/// <summary>The party cooldowns window.</summary>
+[Serializable]
+public sealed class CooldownWindowConfig
+{
+    public bool Open { get; set; }
+    public CooldownView View { get; set; } = CooldownView.Grid;
+    public bool Locked { get; set; }
+    public bool ClickThrough { get; set; }
+    public Vector2 Position { get; set; } = new(60, 560);
+    public Vector2 Size { get; set; } = new(340, 200);
+    public float IconSize { get; set; } = 24f;
+    public bool ShowNames { get; set; } = true;
+
+    public bool ShowRaidBuffs { get; set; } = true;
+    public bool ShowMitigation { get; set; } = true;
+    public bool ShowHealing { get; set; } = true;
+    public bool ShowInvulns { get; set; } = true;
+    public bool ShowUtility { get; set; }
 }
 
 [Serializable]
@@ -172,6 +212,24 @@ public class Configuration
     public NumberFormat NumberFormat { get; set; } = NumberFormat.Short;
     public ReducedMotionMode ReducedMotion { get; set; } = ReducedMotionMode.System;
 
+    // Meter window chrome. The defaults are the original obsidian look.
+    public Vector4 BackgroundColor { get; set; } = new(0x0C / 255f, 0x0E / 255f, 0x12 / 255f, 1f);
+    public BackgroundStyle BackgroundStyle { get; set; } = BackgroundStyle.Solid;
+    public float WindowRounding { get; set; } = 6f;
+    public bool ShowBorder { get; set; } = true;
+    public Vector4 BorderColor { get; set; } = new(0x2A / 255f, 0x30 / 255f, 0x3C / 255f, 1f);
+    public float BorderThickness { get; set; } = 1f;
+    public Vector4 HeaderColor { get; set; } = new(0x13 / 255f, 0x16 / 255f, 0x1C / 255f, 1f);
+    public float HeaderOpacity { get; set; } = 0.92f;
+    public bool ShowHeaderLogo { get; set; } = true;
+    public bool ShowHeaderLine { get; set; } = true;
+    /// <summary>Header underline, live timer, footer total, your own bar's outline and the logo.</summary>
+    public Vector4 WindowAccent { get; set; } = new(0.37f, 0.85f, 0.78f, 1f);
+    public Vector4 TextColor { get; set; } = new(0xE6 / 255f, 0xE8 / 255f, 0xEC / 255f, 1f);
+    /// <summary>"Aethermeter by GitHixy", faint in the middle of the window.</summary>
+    public bool ShowWatermark { get; set; } = true;
+    public float WatermarkOpacity { get; set; } = 0.07f;
+
     public FontId NameFont { get; set; } = FontId.Interface;
     public FontId NumberFont { get; set; } = FontId.BarlowCondensed;
     public FontId HeaderFont { get; set; } = FontId.BarlowCondensed;
@@ -180,4 +238,5 @@ public class Configuration
     public float HeaderFontSize { get; set; } = 16f;
 
     public List<MeterWindowConfig> Windows { get; set; } = new();
+    public CooldownWindowConfig Cooldowns { get; set; } = new();
 }

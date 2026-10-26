@@ -141,6 +141,40 @@ public sealed class ConfigWindow : Window
     {
         var changed = false;
 
+        Theme.Section("Window");
+        changed |= Presets();
+        changed |= Color("Background colour", Config.BackgroundColor, v => Config.BackgroundColor = v);
+        changed |= Enum("Background style", Config.BackgroundStyle, v => Config.BackgroundStyle = v, v => v switch
+        {
+            BackgroundStyle.Solid => "Solid",
+            BackgroundStyle.Gradient => "Gradient (light from the top)",
+            BackgroundStyle.Glass => "Glass (diagonal sheen)",
+            _ => "Glow (accent under the header)",
+        });
+        changed |= Slider("Background opacity", Config.BackgroundOpacity, 0f, 1f, "%.2f", v => Config.BackgroundOpacity = v);
+        changed |= Slider("Window rounding", Config.WindowRounding, 0f, 16f, "%.0f px", v => Config.WindowRounding = v);
+        changed |= Check("Border", Config.ShowBorder, v => Config.ShowBorder = v);
+        if (Config.ShowBorder)
+        {
+            using var indent = ImRaii.PushIndent();
+            changed |= Color("Border colour", Config.BorderColor, v => Config.BorderColor = v);
+            changed |= Slider("Border thickness", Config.BorderThickness, 1f, 4f, "%.0f px", v => Config.BorderThickness = v);
+        }
+
+        changed |= Color("Header colour", Config.HeaderColor, v => Config.HeaderColor = v);
+        changed |= Slider("Header opacity", Config.HeaderOpacity, 0f, 1f, "%.2f", v => Config.HeaderOpacity = v);
+        changed |= Check("Logo in the header", Config.ShowHeaderLogo, v => Config.ShowHeaderLogo = v);
+        changed |= Check("Accent line under the header", Config.ShowHeaderLine, v => Config.ShowHeaderLine = v);
+        changed |= Color("Accent colour", Config.WindowAccent, v => Config.WindowAccent = v);
+        Theme.Help("The header line, the live timer, the group total, your own bar's outline and the logo.");
+        changed |= Color("Text colour", Config.TextColor, v => Config.TextColor = v);
+        changed |= Check("Watermark (Aethermeter by GitHixy)", Config.ShowWatermark, v => Config.ShowWatermark = v);
+        if (Config.ShowWatermark)
+        {
+            using var indent = ImRaii.PushIndent();
+            changed |= Slider("Watermark opacity", Config.WatermarkOpacity, 0.02f, 0.3f, "%.2f", v => Config.WatermarkOpacity = v);
+        }
+
         Theme.Section("Bars");
         changed |= Enum("Style", Config.BarStyle, v => Config.BarStyle = v);
         changed |= Enum("Colour by", Config.BarColorMode, v => Config.BarColorMode = v);
@@ -156,9 +190,8 @@ public sealed class ConfigWindow : Window
 
         changed |= Slider("Height", Config.BarHeight, 14f, 44f, "%.0f px", v => Config.BarHeight = v);
         changed |= Slider("Spacing", Config.BarSpacing, 0f, 10f, "%.0f px", v => Config.BarSpacing = v);
-        changed |= Slider("Corner rounding", Config.Rounding, 0f, 10f, "%.0f px", v => Config.Rounding = v);
+        changed |= Slider("Bar rounding", Config.Rounding, 0f, 10f, "%.0f px", v => Config.Rounding = v);
         changed |= Slider("Bar opacity", Config.BarOpacity, 0.2f, 1f, "%.2f", v => Config.BarOpacity = v);
-        changed |= Slider("Background opacity", Config.BackgroundOpacity, 0f, 1f, "%.2f", v => Config.BackgroundOpacity = v);
 
         Theme.Section("Content");
         changed |= Check("Job icons", Config.ShowJobIcons, v => Config.ShowJobIcons = v);
@@ -167,15 +200,16 @@ public sealed class ConfigWindow : Window
         changed |= Check("Share of the group", Config.ShowPercent, v => Config.ShowPercent = v);
         changed |= Check("Outline your own bar", Config.HighlightSelf, v => Config.HighlightSelf = v);
         changed |= Check("Group total footer", Config.ShowFooter, v => Config.ShowFooter = v);
-        changed |= Enum("Numbers", Config.NumberFormat, v => Config.NumberFormat = v,
+        changed |= Enum("Number format", Config.NumberFormat, v => Config.NumberFormat = v,
             v => v == NumberFormat.Short ? "Short (12.3k, 1.45M)" : "Full (12,345)");
 
         Theme.Section("Text");
-        changed |= Font("Names", Config.NameFont, v => Config.NameFont = v);
+        // Labels double as ImGui IDs: each must be unique in the tab, or its combo opens another's popup.
+        changed |= Font("Name font", Config.NameFont, v => Config.NameFont = v);
         changed |= Slider("Name size", Config.NameFontSize, 10f, 28f, "%.0f px", v => Config.NameFontSize = v);
-        changed |= Font("Numbers", Config.NumberFont, v => Config.NumberFont = v);
+        changed |= Font("Number font", Config.NumberFont, v => Config.NumberFont = v);
         changed |= Slider("Number size", Config.NumberFontSize, 10f, 30f, "%.0f px", v => Config.NumberFontSize = v);
-        changed |= Font("Header", Config.HeaderFont, v => Config.HeaderFont = v);
+        changed |= Font("Header font", Config.HeaderFont, v => Config.HeaderFont = v);
         changed |= Slider("Header size", Config.HeaderFontSize, 11f, 26f, "%.0f px", v => Config.HeaderFontSize = v);
         changed |= Check("Text shadow", Config.TextShadow, v => Config.TextShadow = v);
         if (FontService.IsLatinOnly(Config.NameFont))
@@ -278,6 +312,32 @@ public sealed class ConfigWindow : Window
 
         ImGui.Dummy(new Vector2(0, 6));
         ImGui.TextColored(Theme.TextFaint, "Click-through only applies to locked windows. Unlock them here, or with /meter unlock.");
+
+        Theme.Section("Party cooldowns");
+        var cd = Config.Cooldowns;
+        ImGui.TextWrapped("Who has their raid buffs, party mitigation, healing cooldowns and invulnerabilities ready, as a grid or as a timeline of the pull. Also /meter cd.");
+        ImGui.Dummy(new Vector2(0, 2));
+        changed |= Check("Show the cooldown window", cd.Open, v => cd.Open = v);
+        changed |= Enum("View", cd.View, v => cd.View = v, v => v == CooldownView.Grid ? "Grid (ready or counting down)" : "Timeline (the pull, use by use)");
+        changed |= Slider("Icon size", cd.IconSize, 16f, 40f, "%.0f px", v => cd.IconSize = v);
+        changed |= Check("Names next to the job icon", cd.ShowNames, v => cd.ShowNames = v);
+        changed |= Check("Raid buffs", cd.ShowRaidBuffs, v => cd.ShowRaidBuffs = v);
+        ImGui.SameLine(180);
+        changed |= Check("Party mitigation", cd.ShowMitigation, v => cd.ShowMitigation = v);
+        changed |= Check("Healing cooldowns", cd.ShowHealing, v => cd.ShowHealing = v);
+        ImGui.SameLine(180);
+        changed |= Check("Tank invulnerabilities", cd.ShowInvulns, v => cd.ShowInvulns = v);
+        changed |= Check("Utility (Swiftcast, Rescue)", cd.ShowUtility, v => cd.ShowUtility = v);
+        changed |= Check("Lock##cd", cd.Locked, v => cd.Locked = v);
+        ImGui.SameLine(180);
+        changed |= Check("Click-through##cd", cd.ClickThrough, v => cd.ClickThrough = v);
+        if (ImGui.Button("Reset position##cd"))
+        {
+            plugin.CooldownWindow.MoveTo(new CooldownWindowConfig().Position);
+            changed = true;
+        }
+
+        ImGui.TextColored(Theme.TextFaint, "Recasts are the max-level ones. Others' cooldowns are only known once they've used them.");
         return changed;
     }
 
@@ -409,7 +469,8 @@ public sealed class ConfigWindow : Window
         Theme.Section("Uploading");
         ImGui.TextWrapped("Live: in the Archon App, start live logging and select the folder above. One pull: in the Archon App, choose \"Upload a log\" and pick the file from the Pulls folder.");
         ImGui.Dummy(new Vector2(0, 2));
-        ImGui.TextColored(Theme.Gold, "Experimental: the log follows ACT's documented format, but not yet confirmed against every FFLogs parser version. Please report any upload that fails.");
+        ImGui.TextColored(Theme.Gold, "Experimental: the log follows ACT's network log format, but it is written by Aethermeter, not by ACT's FFXIV plugin. FFLogs reads it, then marks the report invalid for rankings.");
+        ImGui.TextWrapped("Use these logs to review your pulls. For ranked logs, use ACT or IINACT, which run ACT's own FFXIV plugin.");
         if (!plugin.Hooks.DirectorActive)
             ImGui.TextColored(Theme.Ember, "Director hook offline: logs won't mark pull starts and wipes.");
 
@@ -445,6 +506,7 @@ public sealed class ConfigWindow : Window
         Command("/meter new", "Add a meter window");
         Command("/meter test", "Play a made-up fight to preview the meter");
         Command("/meter log", "Start or stop the live log for FFLogs");
+        Command("/meter cd", "Show or hide party cooldowns");
         Command("/meter news", "Show what's new");
 
         Theme.Section("Status");
@@ -499,6 +561,66 @@ public sealed class ConfigWindow : Window
         return changed;
     }
 
+    private static bool Color(string label, Vector4 value, Action<Vector4> set)
+    {
+        if (!ImGui.ColorEdit4(label, ref value, ImGuiColorEditFlags.NoInputs | ImGuiColorEditFlags.NoAlpha)) return false;
+        set(value with { W = 1f });
+        return true;
+    }
+
+    /// <summary>A font picker whose options are each drawn in their own face.</summary>
     private bool Font(string label, FontId value, Action<FontId> set)
-        => Enum(label, value, set, FontService.DisplayName);
+    {
+        var changed = false;
+        using var combo = ImRaii.Combo(label, FontService.DisplayName(value));
+        if (!combo) return false;
+
+        var h = ImGui.GetTextLineHeight() * 1.4f;
+        foreach (var id in System.Enum.GetValues<FontId>())
+        {
+            var p = ImGui.GetCursorScreenPos();
+            if (ImGui.Selectable($"##font{id}", id == value, ImGuiSelectableFlags.None, new Vector2(0, h)))
+            {
+                set(id);
+                changed = true;
+            }
+
+            ImGui.GetWindowDrawList().AddText(plugin.Fonts.Get(id), h * 0.9f, p + new Vector2(2, h * 0.05f),
+                Theme.U32(id == value ? Theme.AetherBright : Theme.Text), FontService.DisplayName(id));
+        }
+
+        return changed;
+    }
+
+    /// <summary>One pill per ready-made look; the one in use is filled.</summary>
+    private bool Presets()
+    {
+        var changed = false;
+        var avail = ImGui.GetContentRegionAvail().X;
+        var used = 0f;
+        for (var i = 0; i < WindowPresets.All.Length; i++)
+        {
+            var preset = WindowPresets.All[i];
+            var w = ImGui.CalcTextSize(preset.Name).X + 26;
+            if (i > 0 && used + 6 + w <= avail)
+            {
+                ImGui.SameLine(0, 6);
+                used += 6 + w;
+            }
+            else
+            {
+                used = w;
+            }
+
+            var current = Config.BackgroundColor == preset.Background && Config.WindowAccent == preset.Accent;
+            if (Theme.PillButton(preset.Name, Vector2.Zero, preset.Accent, filled: current))
+            {
+                WindowPresets.Apply(preset, Config);
+                changed = true;
+            }
+        }
+
+        Theme.Help("Sets the window's colours, border, rounding and bar style in one go. Bar colours, fonts and layout stay as they are.");
+        return changed;
+    }
 }

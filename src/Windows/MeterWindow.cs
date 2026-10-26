@@ -49,6 +49,13 @@ public sealed class MeterWindow
 
     private Configuration Config => plugin.Configuration;
 
+    private float Radius => Chrome.Radius(Config);
+    private Vector4 Accent => Config.WindowAccent;
+    private Vector4 AccentBright => Chrome.AccentBright(Config);
+
+    /// <summary>Half the watermark's height this frame, so the empty state can sit below it.</summary>
+    private float watermarkHalf;
+
     public void MoveTo(Vector2 position)
     {
         Settings.Position = position;
@@ -75,9 +82,7 @@ public sealed class MeterWindow
         ImGui.SetNextWindowBgAlpha(Config.BackgroundOpacity);
 
         using var theme = Theme.Push();
-        using var style = ImRaii.PushStyle(ImGuiStyleVar.WindowPadding, Vector2.Zero)
-            .Push(ImGuiStyleVar.WindowRounding, Math.Max(Config.Rounding + 3f, 0f))
-            .Push(ImGuiStyleVar.WindowMinSize, new Vector2(170, 70));
+        using var chrome = Chrome.Push(Config, new Vector2(170, 70));
 
         if (ImGui.Begin($"##aethermeter-{Settings.Id}", flags))
         {
@@ -129,6 +134,8 @@ public sealed class MeterWindow
 
             var bodyMin = new Vector2(winMin.X, winMin.Y + headerH);
             var bodyMax = new Vector2(winMax.X, winMax.Y - footerH);
+            Chrome.Backdrop(dl, Config, bodyMin, bodyMax);
+            watermarkHalf = Chrome.Watermark(dl, plugin.Fonts.Get(FontId.BarlowCondensed), Config, bodyMin, bodyMax);
             ImGui.SetCursorScreenPos(bodyMin);
             using (ImRaii.Child("##bars", bodyMax - bodyMin, false, ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse | ImGuiWindowFlags.NoBackground))
             {
@@ -152,17 +159,16 @@ public sealed class MeterWindow
         var size = Config.HeaderFontSize;
         var h = MathF.Round(size + 14f);
         var max = new Vector2(right, min.Y + h);
-        var r = Math.Max(Config.Rounding + 3f, 0f);
-
-        dl.AddRectFilled(min, max, Theme.U32(Theme.Panel, 0.92f), r, ImDrawFlags.RoundCornersTop);
-        dl.AddRectFilledMultiColor(new Vector2(min.X, max.Y - 1), new Vector2(right, max.Y),
-            Theme.U32(Theme.Aether, 0.55f), Theme.U32(Theme.Aether, 0.0f), Theme.U32(Theme.Aether, 0.0f), Theme.U32(Theme.Aether, 0.55f));
-
-        var logo = h - 12f;
-        Theme.Logo(dl, new Vector2(min.X + 7, min.Y + 6), logo);
+        Chrome.Header(dl, Config, min, max);
 
         var textY = min.Y + (h - size) * 0.5f;
-        var x = min.X + 13 + logo;
+        var x = min.X + 9;
+        if (Config.ShowHeaderLogo)
+        {
+            var logo = h - 12f;
+            Theme.Logo(dl, new Vector2(min.X + 7, min.Y + 6), logo, accent: Accent);
+            x = min.X + 13 + logo;
+        }
 
         // Right-hand cluster first, so the titles know how much room is left.
         var btn = h - 6f;
@@ -179,7 +185,7 @@ public sealed class MeterWindow
         var timerW = Theme.Measure(font, size, timer);
         var timerX = bx - 8 - timerW;
         var live = encounter is { Active: true, IsOverall: false } || encounter is { IsOverall: true } && plugin.Encounters.InCombat;
-        Theme.Text2(dl, font, size, new Vector2(timerX, textY), Theme.U32(live ? Theme.AetherBright : Theme.TextMuted), timer, false);
+        Theme.Text2(dl, font, size, new Vector2(timerX, textY), Theme.U32(live ? AccentBright : Theme.TextMuted), timer, false);
         if (live)
         {
             // Breathing dot: the meter is recording.
@@ -197,7 +203,7 @@ public sealed class MeterWindow
         if (ImGui.InvisibleButton("##mode", new Vector2(Math.Max(Theme.Measure(font, size, modeFit) + 4, 1), h - 4)))
             ImGui.OpenPopup("##meter-mode");
         var modeHover = ImGui.IsItemHovered();
-        Theme.Text2(dl, font, size, new Vector2(x, textY), Theme.U32(modeHover ? Theme.AetherBright : Theme.Text), modeFit, false);
+        Theme.Text2(dl, font, size, new Vector2(x, textY), Theme.U32(modeHover ? AccentBright : Config.TextColor), modeFit, false);
         x += Theme.Measure(font, size, modeFit) + 8;
 
         var segText = SegmentLabel(encounter);
@@ -210,7 +216,7 @@ public sealed class MeterWindow
             if (ImGui.InvisibleButton("##segment", new Vector2(Math.Max(segW + 4, 1), h - 4)))
                 ImGui.OpenPopup("##meter-segment");
             var segHover = ImGui.IsItemHovered();
-            Theme.Text2(dl, font, size * 0.86f, new Vector2(x, textY + size * 0.08f), Theme.U32(segHover ? Theme.AetherBright : Theme.TextMuted), segFit, false);
+            Theme.Text2(dl, font, size * 0.86f, new Vector2(x, textY + size * 0.08f), Theme.U32(segHover ? AccentBright : Theme.TextMuted), segFit, false);
         }
 
         return h;
@@ -364,7 +370,7 @@ public sealed class MeterWindow
         Bars.Fill(dl, min, max, fill, color, Config.BarStyle, rounding, Config.BarOpacity, hovered);
 
         if (Config.HighlightSelf && c.IsLocalPlayer)
-            dl.AddRect(min, max, Theme.U32(Theme.AetherBright, 0.55f), rounding, ImDrawFlags.None, 1f);
+            dl.AddRect(min, max, Theme.U32(AccentBright, 0.55f), rounding, ImDrawFlags.None, 1f);
         if (hovered)
             dl.AddRect(min, max, Theme.U32(Theme.Text, 0.35f), rounding, ImDrawFlags.None, 1f);
 
@@ -382,7 +388,7 @@ public sealed class MeterWindow
         }
 
         var shadow = Config.TextShadow;
-        var textColor = Theme.U32(Theme.Text);
+        var textColor = Theme.U32(Config.TextColor);
         var nameSize = Math.Min(Config.NameFontSize, h - 2);
         var numSize = Math.Min(Config.NumberFontSize, h);
         var nameY = min.Y + (h - nameSize) * 0.5f - 0.5f;
@@ -391,7 +397,7 @@ public sealed class MeterWindow
         if (Config.ShowRank)
         {
             var rankText = rank.ToString();
-            Theme.Text2(dl, numFont, numSize * 0.92f, new Vector2(x, numY + numSize * 0.04f), Theme.U32(Theme.Text, 0.75f), rankText, shadow);
+            Theme.Text2(dl, numFont, numSize * 0.92f, new Vector2(x, numY + numSize * 0.04f), Theme.U32(Config.TextColor, 0.75f), rankText, shadow);
             x += Math.Max(Theme.Measure(numFont, numSize * 0.92f, rankText), Theme.Measure(numFont, numSize * 0.92f, "0")) + 6;
         }
 
@@ -404,7 +410,7 @@ public sealed class MeterWindow
         {
             var w = Theme.Measure(numFont, numSize * 0.86f, extra);
             right -= w;
-            Theme.Text2(dl, numFont, numSize * 0.86f, new Vector2(right, numY + numSize * 0.08f), Theme.U32(Theme.Text, 0.7f), extra, shadow);
+            Theme.Text2(dl, numFont, numSize * 0.86f, new Vector2(right, numY + numSize * 0.08f), Theme.U32(Config.TextColor, 0.7f), extra, shadow);
             right -= 5;
         }
 
@@ -494,9 +500,12 @@ public sealed class MeterWindow
         var text = encounter is null ? "Waiting for combat" : "Nothing to show in this view";
         var w = Theme.Measure(font, size, text);
         var center = (min + max) * 0.5f;
-        if (max.Y - min.Y > 60)
-            Theme.Logo(dl, new Vector2(center.X - 11, center.Y - 30), 22, 0.45f);
-        dl.AddText(font, size, new Vector2(center.X - w * 0.5f, center.Y), Theme.U32(Theme.TextFaint), text);
+        var y = center.Y;
+        if (watermarkHalf > 0)
+            y = Math.Min(center.Y + watermarkHalf + 8f, max.Y - size - 4f); // under the watermark, which stands in for the logo
+        else if (max.Y - min.Y > 60)
+            Theme.Logo(dl, new Vector2(center.X - 11, center.Y - 30), 22, 0.45f, Accent);
+        dl.AddText(font, size, new Vector2(center.X - w * 0.5f, y), Theme.U32(Theme.TextFaint), text);
 
         // Right-click anywhere still opens the view menu.
         ImGui.SetCursorScreenPos(min);
@@ -511,9 +520,8 @@ public sealed class MeterWindow
 
     private void DrawFooter(ImDrawListPtr dl, Vector2 min, Vector2 max, Encounter? encounter, double now)
     {
-        var r = Math.Max(Config.Rounding + 3f, 0f);
-        dl.AddRectFilled(min, max, Theme.U32(Theme.Panel, 0.75f), r, ImDrawFlags.RoundCornersBottom);
-        dl.AddLine(min, new Vector2(max.X, min.Y), Theme.U32(Theme.Line), 1f);
+        dl.AddRectFilled(min, max, Theme.U32(Config.HeaderColor, Config.HeaderOpacity * 0.82f), Radius, ImDrawFlags.RoundCornersBottom);
+        dl.AddLine(min, new Vector2(max.X, min.Y), Theme.U32(Config.BorderColor), 1f);
         if (encounter is null) return;
 
         var font = plugin.Fonts.Get(Config.NumberFont);
@@ -536,7 +544,7 @@ public sealed class MeterWindow
 
         var value = Settings.Mode == MeterMode.Deaths ? ((int)total).ToString() : Format.Number(total, Config.NumberFormat);
         var w = Theme.Measure(font, size, value);
-        dl.AddText(font, size, new Vector2(max.X - 8 - w, y), Theme.U32(Theme.AetherBright), value);
+        dl.AddText(font, size, new Vector2(max.X - 8 - w, y), Theme.U32(AccentBright), value);
     }
 
     // ------------------------------------------------------------------
@@ -681,6 +689,7 @@ public sealed class MeterWindow
 
         ImGui.Separator();
         if (ImGui.MenuItem("New window")) plugin.AddWindow(Settings.Mode == MeterMode.Dps ? MeterMode.Hps : MeterMode.Dps);
+        if (ImGui.MenuItem("Party cooldowns", string.Empty, Config.Cooldowns.Open)) plugin.ToggleCooldowns();
         if (ImGui.MenuItem("Close this window")) plugin.CloseWindow(this);
         if (ImGui.MenuItem("Settings")) plugin.ConfigWindow.IsOpen = true;
         if (ImGui.MenuItem("What's new")) plugin.ChangelogWindow.ShowAll();

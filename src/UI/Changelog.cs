@@ -27,6 +27,22 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("0.1.1", "Party cooldowns, and a window that's yours",
+        [
+            new(NoteKind.Added, "Party cooldowns (/meter cd, or the meter's menu): raid buffs, party mitigation, healing cooldowns "
+                                + "and tank invulnerabilities for everyone in your party, as a grid with countdowns or as a "
+                                + "timeline of the pull. /meter test plays them too."),
+            new(NoteKind.Added, "Five ready-made looks for the meter window: Obsidian, Midnight, Ember, Amethyst and Minimal."),
+            new(NoteKind.Added, "Tune the window itself: background colour and style (solid, gradient, glass or glow), rounding, "
+                                + "border colour and thickness, header colour and opacity, accent colour and text colour."),
+            new(NoteKind.Added, "A faint \"Aethermeter by GitHixy\" watermark behind the bars, with its own opacity (or off)."),
+            new(NoteKind.Fixed, "Logs for FFLogs now show damage and healing: each hit gets the effect-result line (37) FFLogs "
+                                + "needs, line hashes follow ACT's recipe, and duties are named as in the Duty Finder."),
+            new(NoteKind.Changed, "Logs say in their first line that Aethermeter wrote them. FFLogs reads them but marks them invalid "
+                                  + "for rankings; use ACT or IINACT for ranked logs."),
+            new(NoteKind.Improved, "The font pickers show every font in its own face."),
+            new(NoteKind.Fixed, "The number font picker didn't open: it shared its ID with the number format picker."),
+        ]),
         new("0.1.0", "Welcome to Aethermeter",
         [
             new(NoteKind.Added, "A damage and healing meter drawn by the game itself: no external parser to start."),
