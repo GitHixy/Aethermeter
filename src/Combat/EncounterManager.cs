@@ -28,7 +28,8 @@ public enum SegmentKind
 /// <summary>
 /// Cuts the event stream into pulls. A pull starts with the first hit between us and anything
 /// else, and ends once nobody we follow has been in combat for a moment (or on a wipe, a clear,
-/// or a zone change). Every pull also feeds the Overall segment.
+/// or a zone change). A PvP match is one pull from first hit to the end of the match, through
+/// every respawn. Every pull also feeds the Overall segment.
 /// </summary>
 public sealed class EncounterManager : IDisposable
 {
@@ -56,6 +57,9 @@ public sealed class EncounterManager : IDisposable
     private double lastEvent;
     private double outOfCombatSince = -1;
     private readonly HashSet<uint> dead = new();
+    private readonly PvpTracker pvp = new();
+    /// <summary>The running pull is a PvP match: it lasts until the match ends, not the next lull.</summary>
+    private bool match;
 
     public EncounterManager(Configuration config, ActorResolver actors, Func<double> clock)
     {
@@ -80,6 +84,9 @@ public sealed class EncounterManager : IDisposable
 
     /// <summary>A test fight is running: its made-up party counts as in combat.</summary>
     public bool Simulating { get; set; }
+
+    /// <summary>The test fight is a PvP match: its pull counts kills and lasts until the test ends.</summary>
+    public bool SimulatingPvp { get; set; }
 
     /// <summary>The party plus NPC allies seen in the current pull: everyone whose shields count.</summary>
     public List<uint> TrackedIds()
@@ -116,6 +123,7 @@ public sealed class EncounterManager : IDisposable
 
             Active!.Apply(e);
             Overall.Apply(e);
+            if (Active.IsPvp) pvp.Note(e);
             if (e.Kind == EventKind.Damage && e.Source.Friendly != e.Target.Friendly)
                 lastEvent = e.Time;
         }
@@ -130,6 +138,12 @@ public sealed class EncounterManager : IDisposable
         lock (Sync)
         {
             CheckDeaths(now);
+            if (Active.IsPvp)
+                foreach (var kill in pvp.Poll(now))
+                    Credit(kill);
+
+            // Respawns, walks back to the fight and objective downtime are all part of the match.
+            if (match) return;
 
             if (AnyoneInCombat())
                 outOfCombatSince = -1;
@@ -150,17 +164,23 @@ public sealed class EncounterManager : IDisposable
             History.Clear();
             Overall = new Encounter(0, clock(), isOverall: true);
             dead.Clear();
+            pvp.Clear();
             actors.Clear();
         }
     }
 
     private void Begin(double now)
     {
-        Active = new Encounter(nextId++, now) { Zone = ZoneName() };
+        var isPvp = SimulatingPvp || Plugin.ClientState.IsPvP;
+        Active = new Encounter(nextId++, now) { Zone = SimulatingPvp ? "Test match" : ZoneName(), IsPvp = isPvp };
+        // Wolves' Den duels are short spars: they split like any other pull.
+        match = SimulatingPvp || Plugin.ClientState.IsPvPExcludingDen;
+        Overall.IsPvp |= isPvp;
         Overall.BeginLive(now);
         lastEvent = now;
         outOfCombatSince = -1;
         dead.Clear();
+        pvp.Clear();
     }
 
     private void Finish(double end)
@@ -171,6 +191,7 @@ public sealed class EncounterManager : IDisposable
         pull.End = Math.Max(end, pull.Start);
         Overall.EndLive(pull.End.Value);
         Active = null;
+        match = false;
 
         if (pull.Duration(end) < config.MinimumSegmentSeconds && pull.TotalDamage == 0)
             return;
@@ -185,7 +206,8 @@ public sealed class EncounterManager : IDisposable
     private void OnDutyReset(IDutyStateEventArgs args) => EndNow();
     private void OnTerritoryChanged(uint territory) => EndNow();
 
-    private void EndNow()
+    /// <summary>Ends the running pull at its last hit: a duty ended, the zone changed, or a test match stopped.</summary>
+    public void EndNow()
     {
         lock (Sync)
         {
@@ -217,14 +239,53 @@ public sealed class EncounterManager : IDisposable
             }
 
             if (!dead.Add(c.EntityId)) continue;
+            Died(c, now);
+        }
+    }
 
-            c.RecordDeath(now, RecapWindow);
-            Active.TotalDeaths++;
-            if (Overall.Combatants.TryGetValue(c.EntityId, out var overall))
+    private void Died(Combatant c, double now)
+    {
+        var death = c.RecordDeath(now, RecapWindow);
+        Active!.TotalDeaths++;
+        if (Overall.Combatants.TryGetValue(c.EntityId, out var overall))
+        {
+            overall.RecordDeath(now, RecapWindow);
+            Overall.TotalDeaths++;
+        }
+
+        if (!Active.IsPvp) return;
+        var k = pvp.ForDeath(c, death);
+        Active.Kills.Add(k);
+        Overall.Kills.Add(k);
+    }
+
+    /// <summary>
+    /// Someone went down without the game telling us (the test fight's made-up players):
+    /// one of ours is a death, an opponent is a knockout to credit.
+    /// </summary>
+    public void KnockOut(Actor who, double now)
+    {
+        lock (Sync)
+        {
+            if (Active is null) return;
+            if (who.Hostile)
             {
-                overall.RecordDeath(now, RecapWindow);
-                Overall.TotalDeaths++;
+                if (pvp.KnockOut(who.EntityId, now) is { } k) Credit(k);
             }
+            else if (Active.Combatants.TryGetValue(who.EntityId, out var c))
+                Died(c, now);
+        }
+    }
+
+    /// <summary>A knockout our side scored: the kill and assists go to the pull and to Overall.</summary>
+    private void Credit(KillRecord kill)
+    {
+        foreach (var e in new[] { Active!, Overall })
+        {
+            e.Kills.Add(kill);
+            if (e.Combatants.TryGetValue(kill.KillerId, out var killer)) killer.Kills++;
+            foreach (var id in kill.Assists)
+                if (e.Combatants.TryGetValue(id, out var helper)) helper.Assists++;
         }
     }
 

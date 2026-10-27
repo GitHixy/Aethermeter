@@ -27,6 +27,18 @@ public static class Changelog
 {
     public static readonly Release[] Releases =
     [
+        new("0.1.2", "Into the arena",
+        [
+            new(NoteKind.Added, "PvP stats (/meter pvp, or the meter's menu): kills, deaths and assists for your side, with damage "
+                                + "to players, healing, damage taken, the team's knockout score and a kill feed. Sort by any column, "
+                                + "pick a past match from the header. It shows up on its own in PvP areas."),
+            new(NoteKind.Added, "/meter test pvp plays a made-up five-on-five match, knockouts and respawns included."),
+            new(NoteKind.Improved, "A PvP match is one segment from the first hit to the end of the match, instead of a new pull "
+                                   + "after every respawn."),
+            new(NoteKind.Fixed, "Opposing players were counted as allies with \"Every player nearby\"; they never are now."),
+            new(NoteKind.Fixed, "A chocobo could show someone else's name as its rider, when its id had belonged to another "
+                                + "player's bird before."),
+        ]),
         new("0.1.1", "Party cooldowns, and a window that's yours",
         [
             new(NoteKind.Added, "Party cooldowns (/meter cd, or the meter's menu): raid buffs, party mitigation, healing cooldowns "

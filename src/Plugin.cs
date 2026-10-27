@@ -63,6 +63,7 @@ public sealed class Plugin : IDalamudPlugin
     public ConfigWindow ConfigWindow { get; }
     public ChangelogWindow ChangelogWindow { get; }
     public CooldownWindow CooldownWindow { get; }
+    public PvpWindow PvpWindow { get; }
 
     private readonly Stopwatch clock = Stopwatch.StartNew();
     public double Now => clock.Elapsed.TotalSeconds;
@@ -98,6 +99,7 @@ public sealed class Plugin : IDalamudPlugin
         ConfigWindow = new ConfigWindow(this);
         ChangelogWindow = new ChangelogWindow(this);
         CooldownWindow = new CooldownWindow(this);
+        PvpWindow = new PvpWindow(this);
 
         if (Configuration.Windows.Count == 0)
             Configuration.Windows.Add(new MeterWindowConfig());
@@ -109,7 +111,7 @@ public sealed class Plugin : IDalamudPlugin
 
         CommandManager.AddHandler(CommandName, new CommandInfo(OnCommand)
         {
-            HelpMessage = "Show or hide the meter\n/meter config → settings\n/meter reset → clear every segment\n/meter lock | unlock → lock or unlock every window\n/meter new → add a meter window\n/meter test → play a made-up fight to preview the meter\n/meter log → start or stop the live log for FFLogs\n/meter cd → show or hide party cooldowns\n/meter news → what's new",
+            HelpMessage = "Show or hide the meter\n/meter config → settings\n/meter reset → clear every segment\n/meter lock | unlock → lock or unlock every window\n/meter new → add a meter window\n/meter test → play a made-up fight to preview the meter\n/meter test pvp → play a made-up PvP match\n/meter log → start or stop the live log for FFLogs\n/meter cd → show or hide party cooldowns\n/meter pvp → show or hide PvP stats\n/meter news → what's new",
         });
         CommandManager.AddHandler(CommandAlt, new CommandInfo(OnCommand) { ShowInHelp = false });
 
@@ -199,6 +201,9 @@ public sealed class Plugin : IDalamudPlugin
             case "cooldowns":
                 ToggleCooldowns();
                 break;
+            case "pvp":
+                TogglePvp();
+                break;
             case "news":
             case "changelog":
                 ChangelogWindow.ShowAll();
@@ -207,12 +212,13 @@ public sealed class Plugin : IDalamudPlugin
                 AddWindow(MeterMode.Hps);
                 break;
             case "test":
+            case "test pvp":
                 if (Test.Running)
                     Test.Stop();
                 else if (Encounters.InCombat)
                     Notify("Finish your current pull before starting a test fight.");
                 else
-                    Test.Start(Now);
+                    Test.Start(Now, pvp: args.Trim().EndsWith("pvp", StringComparison.OrdinalIgnoreCase));
                 break;
             default:
                 ToggleMeters();
@@ -226,6 +232,14 @@ public sealed class Plugin : IDalamudPlugin
     {
         Configuration.Cooldowns.Open = !Configuration.Cooldowns.Open;
         SaveSoon();
+    }
+
+    public void TogglePvp()
+    {
+        Configuration.Pvp.Open = !Configuration.Pvp.Open;
+        SaveSoon();
+        if (Configuration.Pvp.Open && Configuration.Pvp.OnlyInPvp && !ClientState.IsPvP)
+            Notify("PvP stats on: the window shows up in PvP areas (try /meter test pvp to preview it).");
     }
 
     private void ToggleMeters()
@@ -449,6 +463,7 @@ public sealed class Plugin : IDalamudPlugin
                 foreach (var meter in Meters.ToArray())
                     meter.Draw();
                 CooldownWindow.Draw();
+                PvpWindow.Draw();
             }
 
             BreakdownWindow.Draw();

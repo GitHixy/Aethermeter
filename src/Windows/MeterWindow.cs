@@ -690,6 +690,7 @@ public sealed class MeterWindow
         ImGui.Separator();
         if (ImGui.MenuItem("New window")) plugin.AddWindow(Settings.Mode == MeterMode.Dps ? MeterMode.Hps : MeterMode.Dps);
         if (ImGui.MenuItem("Party cooldowns", string.Empty, Config.Cooldowns.Open)) plugin.ToggleCooldowns();
+        if (ImGui.MenuItem("PvP stats", string.Empty, Config.Pvp.Open)) plugin.TogglePvp();
         if (ImGui.MenuItem("Close this window")) plugin.CloseWindow(this);
         if (ImGui.MenuItem("Settings")) plugin.ConfigWindow.IsOpen = true;
         if (ImGui.MenuItem("What's new")) plugin.ChangelogWindow.ShowAll();

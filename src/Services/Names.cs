@@ -62,6 +62,22 @@ public sealed class Names
         return same.Count <= 1 ? label : $"{label} {same.FindIndex(r => r.EntityId == a.EntityId) + 1}";
     }
 
+    /// <summary>A PvP opponent, in the kill feed: hidden the same way as our own side.</summary>
+    public string Opponent(string name, uint jobId)
+    {
+        switch (config.NameMode)
+        {
+            case NameMode.Full:
+                return name;
+            case NameMode.Initials:
+                return Initials(name);
+        }
+
+        var job = GameData.JobInfo(jobId);
+        var label = config.NameMode == NameMode.JobShort ? job.Abbreviation : job.Name;
+        return label.Length > 0 ? label : "Opponent";
+    }
+
     public void Invalidate() => segmentNames.Clear();
 
     /// <summary>

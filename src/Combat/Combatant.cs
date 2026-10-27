@@ -80,7 +80,7 @@ public sealed class Combatant
 
     /// <summary>A chocobo companion, listed as its own line with its rider in brackets.</summary>
     public bool IsChocobo { get; }
-    public uint OwnerId { get; }
+    public uint OwnerId { get; private set; }
     public string OwnerName { get; set; } = string.Empty;
 
     public long Damage;
@@ -100,6 +100,14 @@ public sealed class Combatant
     public long MaxHit;
     public uint MaxHitAction;
     public uint MaxHitStatus;
+
+    // PvP: kills are killing blows on opposing players, assists are damage in the seconds before.
+    public int Kills;
+    public int Assists;
+    /// <summary>Part of <see cref="Damage"/> dealt to opposing players.</summary>
+    public long PlayerDamage;
+
+    public float Kda => (Kills + Assists) / (float)Math.Max(Deaths.Count, 1);
 
     public Dictionary<(uint Action, uint Status, string? Pet, bool Shield), AbilityStats> DamageAbilities { get; } = new();
     public Dictionary<(uint Action, uint Status, string? Pet, bool Shield), AbilityStats> HealAbilities { get; } = new();
@@ -131,6 +139,11 @@ public sealed class Combatant
     {
         if (actor.Name.Length > 0) Name = actor.Name;
         if (actor.JobId != 0) JobId = actor.JobId;
+        if (actor.OwnerId != 0 && actor.OwnerId != ActorResolver.InvalidId && actor.OwnerId != OwnerId)
+        {
+            OwnerId = actor.OwnerId;
+            OwnerName = actor.OwnerName;
+        }
         if (actor.OwnerName.Length > 0) OwnerName = actor.OwnerName;
         IsLocalPlayer |= actor.IsLocalPlayer;
     }

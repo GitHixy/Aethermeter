@@ -32,6 +32,12 @@ public sealed class Encounter
     public long TotalTaken;
     public int TotalDeaths;
 
+    /// <summary>The pull was (or Overall took in) a PvP match: kills and assists are counted.</summary>
+    public bool IsPvp { get; set; }
+    /// <summary>PvP: every knockout seen, on either side, oldest first.</summary>
+    public List<KillRecord> Kills { get; } = new();
+    public long TotalPlayerDamage;
+
     /// <summary>For the Overall segment: where the running pull started on its timeline.</summary>
     private double liveOffset;
     private double liveStart = -1;
@@ -51,6 +57,8 @@ public sealed class Encounter
         get
         {
             if (IsOverall) return "Overall";
+            // A match is its map: the training dummies and objectives in it aren't the fight.
+            if (IsPvp) return Zone.Length > 0 ? Zone : "PvP match";
             var top = EnemyDamage.Count > 0 ? EnemyDamage.MaxBy(p => p.Value).Key : null;
             return top ?? (Zone.Length > 0 ? Zone : "Combat");
         }
@@ -99,7 +107,12 @@ public sealed class Encounter
             if (e.Kind == EventKind.Damage)
             {
                 TotalDamage += e.Amount;
-                if (e.Target.Kind == ActorKind.Enemy && e.Target.Name.Length > 0)
+                if (e.Target.Hostile)
+                {
+                    c.PlayerDamage += e.Amount;
+                    TotalPlayerDamage += e.Amount;
+                }
+                else if (e.Target.Kind == ActorKind.Enemy && e.Target.Name.Length > 0)
                     EnemyDamage[e.Target.Name] = EnemyDamage.GetValueOrDefault(e.Target.Name) + e.Amount;
             }
             else if (e.Kind == EventKind.Heal)

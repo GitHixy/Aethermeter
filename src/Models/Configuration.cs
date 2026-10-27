@@ -129,6 +129,20 @@ public sealed class CooldownWindowConfig
     public bool ShowUtility { get; set; }
 }
 
+/// <summary>The PvP stats window.</summary>
+[Serializable]
+public sealed class PvpWindowConfig
+{
+    public bool Open { get; set; } = true;
+    /// <summary>Only on screen in PvP areas (and while settings or a test match are open).</summary>
+    public bool OnlyInPvp { get; set; } = true;
+    public bool ShowFeed { get; set; } = true;
+    public bool Locked { get; set; }
+    public bool ClickThrough { get; set; }
+    public Vector2 Position { get; set; } = new(380, 320);
+    public Vector2 Size { get; set; } = new(420, 260);
+}
+
 [Serializable]
 public class Configuration
 {
@@ -239,4 +253,5 @@ public class Configuration
 
     public List<MeterWindowConfig> Windows { get; set; } = new();
     public CooldownWindowConfig Cooldowns { get; set; } = new();
+    public PvpWindowConfig Pvp { get; set; } = new();
 }

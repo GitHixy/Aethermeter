@@ -4,6 +4,7 @@ using System.Numerics;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface;
 using Dalamud.Interface.Utility.Raii;
+using Aethermeter.Combat;
 using Aethermeter.Models;
 using Aethermeter.Services;
 using Aethermeter.UI;
@@ -90,7 +91,7 @@ public sealed class ConfigWindow : Window
         Theme.Section("Tracking");
         changed |= Enum("Track", Config.TrackScope, v => Config.TrackScope = v,
             v => v == TrackScope.Party ? "Party (with pets and NPC allies)" : "Every player nearby");
-        Theme.Help("\"Every player nearby\" is what you want in alliance raids, field operations and hunts.");
+        Theme.Help("\"Every player nearby\" is what you want in alliance raids, field operations and hunts. In PvP it means your whole side (in Frontline, your Grand Company); opponents are never counted.");
 
         var idle = Config.IdleTimeoutSeconds;
         if (ImGui.SliderFloat("End a pull after", ref idle, 5f, 60f, "%.0f s without hits"))
@@ -338,6 +339,26 @@ public sealed class ConfigWindow : Window
         }
 
         ImGui.TextColored(Theme.TextFaint, "Recasts are the max-level ones. Others' cooldowns are only known once they've used them.");
+
+        Theme.Section("PvP stats");
+        var pvp = Config.Pvp;
+        ImGui.TextWrapped("Kills, deaths and assists for your side of the match, with damage to players, healing, damage taken, the team's score and a kill feed. Also /meter pvp, and /meter test pvp to preview it.");
+        ImGui.Dummy(new Vector2(0, 2));
+        changed |= Check("Show the PvP window", pvp.Open, v => pvp.Open = v);
+        changed |= Check("Only in PvP areas", pvp.OnlyInPvp, v => pvp.OnlyInPvp = v);
+        ImGui.SameLine(180);
+        changed |= Check("Kill feed", pvp.ShowFeed, v => pvp.ShowFeed = v);
+        changed |= Check("Lock##pvp", pvp.Locked, v => pvp.Locked = v);
+        ImGui.SameLine(180);
+        changed |= Check("Click-through##pvp", pvp.ClickThrough, v => pvp.ClickThrough = v);
+        if (ImGui.Button("Reset position##pvp"))
+        {
+            plugin.PvpWindow.MoveTo(new PvpWindowConfig().Position);
+            changed = true;
+        }
+
+        ImGui.TextColored(Theme.TextFaint, $"A kill is the last hit within {PvpTracker.KillingBlowWindow:0} s of a knockout; an assist is damage in the {PvpTracker.AssistWindow:0} s before.");
+        ImGui.TextColored(Theme.TextFaint, "The game's scoreboard is kept by the server, so the odd assist can differ.");
         return changed;
     }
 
@@ -505,8 +526,10 @@ public sealed class ConfigWindow : Window
         Command("/meter lock | unlock", "Lock or unlock every window");
         Command("/meter new", "Add a meter window");
         Command("/meter test", "Play a made-up fight to preview the meter");
+        Command("/meter test pvp", "Play a made-up PvP match");
         Command("/meter log", "Start or stop the live log for FFLogs");
         Command("/meter cd", "Show or hide party cooldowns");
+        Command("/meter pvp", "Show or hide PvP stats");
         Command("/meter news", "Show what's new");
 
         Theme.Section("Status");

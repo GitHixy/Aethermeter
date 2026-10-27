@@ -24,13 +24,16 @@ public sealed class Actor
     public string Name { get; set; } = string.Empty;
     public uint JobId { get; set; }
     public ActorKind Kind { get; init; }
-    public uint OwnerId { get; init; }
+    public uint OwnerId { get; set; }
     /// <summary>Chocobos: their rider's name, remembered in case the rider leaves.</summary>
     public string OwnerName { get; set; } = string.Empty;
 
     /// <summary>The local player, the party, their pets and allies: everyone the meter is about.</summary>
     public bool Friendly { get; set; }
     public bool IsLocalPlayer { get; set; }
+
+    /// <summary>A player on the other side: a PvP opponent, or a duel partner in the Wolves' Den.</summary>
+    public bool Hostile { get; set; }
 
     public static readonly Actor Unknown = new() { Name = "?", Kind = ActorKind.Unknown };
 }

@@ -65,10 +65,16 @@ public sealed class Exporter
             e.TotalDamage,
             e.TotalHealing,
             e.TotalTaken,
+            e.IsPvp,
+            Knockouts = e.IsPvp ? e.Kills.Count(k => k.Ours) : (int?)null,
+            KnockedOut = e.IsPvp ? e.Kills.Count(k => !k.Ours) : (int?)null,
             Combatants = e.Combatants.Values.OrderByDescending(c => c.Damage).Select(c => new
             {
                 Name = names.For(c, e),
                 Job = GameData.Profile(c).Abbreviation,
+                Kills = e.IsPvp ? c.Kills : (int?)null,
+                Assists = e.IsPvp ? c.Assists : (int?)null,
+                PlayerDamage = e.IsPvp ? c.PlayerDamage : (long?)null,
                 c.Damage,
                 Dps = Math.Round(c.Damage / Math.Max(seconds, 1), 1),
                 c.Healing,

@@ -47,13 +47,26 @@ public sealed class ActorResolver
             actor = new Actor { EntityId = entityId, Kind = KindOf(obj), OwnerId = obj.OwnerId };
             cache[entityId] = actor;
         }
+        else if (actor.OwnerId != obj.OwnerId)
+        {
+            // Companion ids get reused by the next player who summons one, and a fresh spawn can
+            // report no owner for a frame: the rider has to follow the live object.
+            actor.OwnerId = obj.OwnerId;
+            actor.OwnerName = string.Empty;
+        }
 
         actor.Name = obj.Name.TextValue;
-        if (obj is ICharacter ch) actor.JobId = ch.ClassJob.RowId;
         actor.IsLocalPlayer = entityId == localId;
+        if (obj is ICharacter ch)
+        {
+            actor.JobId = ch.ClassJob.RowId;
+            actor.Hostile = actor.Kind == ActorKind.Player && !actor.IsLocalPlayer && IsRival(ch, entityId);
+        }
+
         actor.Friendly = actor.Kind switch
         {
-            ActorKind.Player => actor.IsLocalPlayer || party.Contains(entityId) || config.TrackScope == TrackScope.Everyone,
+            // Opponents never count as ours, whatever the scope: "every player nearby" means our side.
+            ActorKind.Player => !actor.Hostile && (actor.IsLocalPlayer || party.Contains(entityId) || config.TrackScope == TrackScope.Everyone),
             ActorKind.Ally => true,
             ActorKind.Chocobo => ChocoboRider(actor),
             _ => false,
@@ -79,6 +92,17 @@ public sealed class ActorResolver
         if (owner == Actor.Unknown) return actor;
         actor.Friendly = owner.Friendly;
         return owner;
+    }
+
+    /// <summary>
+    /// A player we fight. The game flags them hostile; in a PvP match, anyone outside our party and
+    /// alliance is on another team too, in case the flag lags behind a respawn.
+    /// </summary>
+    private bool IsRival(ICharacter ch, uint entityId)
+    {
+        if ((ch.StatusFlags & StatusFlags.Hostile) != 0) return true;
+        if (!Plugin.ClientState.IsPvPExcludingDen || party.Contains(entityId)) return false;
+        return (ch.StatusFlags & (StatusFlags.PartyMember | StatusFlags.AllianceMember)) == 0;
     }
 
     private static ActorKind KindOf(IGameObject obj)

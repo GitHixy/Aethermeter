@@ -1,16 +1,21 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Aethermeter.Models;
 
 namespace Aethermeter.Combat;
 
 /// <summary>
 /// /meter test: a made-up 40-second pull of a full party on a dummy, so the meter can be styled
-/// and checked anywhere. Its events go through the same path as real ones.
+/// and checked anywhere. /meter test pvp plays a minute of a five-on-five match instead, with
+/// knockouts and respawns. Its events go through the same path as real ones.
 /// </summary>
 public sealed class TestFight
 {
     private const double Length = 40.0;
+    private const double MatchLength = 60.0;
+    private const long PvpMaxHp = 52_000;
+    private const double Respawn = 5.0;
 
     // Jobs by ClassJob row, with a rough damage weight and a few of their actions.
     private static readonly (uint Job, string Name, double Weight, uint[] Actions)[] Party =
@@ -27,6 +32,18 @@ public sealed class TestFight
 
     private static readonly uint[] Heals = [124, 131, 135, 186, 189, 190, 3570];
 
+    /// <summary>Our team in the test match: indexes into <see cref="Party"/>.</summary>
+    private static readonly int[] Team = [0, 2, 4, 5, 7];
+
+    private static readonly (uint Job, string Name)[] Opponents =
+    [
+        (21, "Brann Ironhold"),
+        (28, "Sel Mistvale"),
+        (30, "Vex Shadowstep"),
+        (31, "Rook Gearwright"),
+        (27, "Ondine Starfall"),
+    ];
+
     private readonly EncounterManager encounters;
     private readonly CooldownTracker cooldowns;
     private readonly Random rng = new();
@@ -39,13 +56,19 @@ public sealed class TestFight
         EntityId = 0x40000002, Name = "Bocchan", Kind = ActorKind.Chocobo, Friendly = true,
         OwnerId = 0x10000005, OwnerName = "Kael Highwind",
     };
+    private readonly Actor[] team;
+    private readonly Actor[] rivals;
+    /// <summary>Test match: everyone's HP, and when the knocked-out are back.</summary>
+    private readonly Dictionary<uint, long> hp = new();
+    private readonly Dictionary<uint, double> downUntil = new();
     private double started = -1;
     private double next;
 
     public bool Running => started >= 0;
+    public bool Pvp { get; private set; }
 
     /// <summary>The made-up party, for the cooldown window while the test runs.</summary>
-    public IReadOnlyList<Actor> Members => actors;
+    public IReadOnlyList<Actor> Members => Pvp ? team : actors;
 
     public TestFight(EncounterManager encounters, CooldownTracker cooldowns)
     {
@@ -54,28 +77,48 @@ public sealed class TestFight
         actors = new Actor[Party.Length];
         for (var i = 0; i < Party.Length; i++)
             actors[i] = new Actor { EntityId = 0x10000001u + (uint)i, Name = Party[i].Name, JobId = Party[i].Job, Kind = ActorKind.Player, Friendly = true };
+
+        team = Team.Select(i => actors[i]).ToArray();
+        rivals = Opponents.Select((o, i) => new Actor
+        {
+            EntityId = 0x10000101u + (uint)i, Name = o.Name, JobId = o.Job, Kind = ActorKind.Player, Hostile = true,
+        }).ToArray();
     }
 
-    public void Start(double now)
+    public void Start(double now, bool pvp = false)
     {
         cooldowns.ResetRecasts();
         started = now;
         next = now;
+        Pvp = pvp;
+        hp.Clear();
+        downUntil.Clear();
+        foreach (var a in team.Concat(rivals)) hp[a.EntityId] = PvpMaxHp;
         encounters.Simulating = true;
+        encounters.SimulatingPvp = pvp;
     }
 
     public void Stop()
     {
         started = -1;
         encounters.Simulating = false;
+        // A match only ends with the match: close it now, or it would wait for a zone change.
+        if (encounters.SimulatingPvp) encounters.EndNow();
+        encounters.SimulatingPvp = false;
     }
 
     public void Update(double now)
     {
         if (!Running) return;
-        if (now - started > Length)
+        if (now - started > (Pvp ? MatchLength : Length))
         {
             Stop();
+            return;
+        }
+
+        if (Pvp)
+        {
+            UpdateMatch(now);
             return;
         }
 
@@ -141,5 +184,84 @@ public sealed class TestFight
                 });
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Test match
+    // ------------------------------------------------------------------
+
+    private bool Up(Actor a, double now) => !downUntil.TryGetValue(a.EntityId, out var t) || now >= t;
+
+    private void UpdateMatch(double now)
+    {
+        while (next <= now)
+        {
+            next += 0.25;
+
+            foreach (var a in team.Concat(rivals))
+                if (downUntil.TryGetValue(a.EntityId, out var t) && now >= t)
+                {
+                    downUntil.Remove(a.EntityId);
+                    hp[a.EntityId] = PvpMaxHp;
+                }
+
+            // Fights bunch up: most hits go to one focus target on each side.
+            for (var i = 0; i < team.Length; i++)
+            {
+                if (rng.NextDouble() > 0.3 || !Up(team[i], now)) continue;
+                if (Pick(rivals, now, focus: 0) is not { } target) break;
+                var actions = Party[Team[i]].Actions;
+                Hit(team[i], target, actions[rng.Next(actions.Length)], rng.Next(4_000, 9_000), now);
+            }
+
+            for (var i = 0; i < rivals.Length; i++)
+            {
+                if (rng.NextDouble() > 0.27 || !Up(rivals[i], now)) continue;
+                if (Pick(team, now, focus: 2) is not { } target) break;
+                Hit(rivals[i], target, 7, rng.Next(4_000, 8_500), now);
+            }
+
+            // Our healer keeps whoever is lowest standing.
+            var healer = team[1];
+            if (!Up(healer, now) || rng.NextDouble() > 0.25) continue;
+            var low = team.Where(a => Up(a, now)).MinBy(a => hp[a.EntityId]);
+            if (low is null) continue;
+
+            var amount = rng.Next(6_000, 12_000);
+            var over = Math.Max(hp[low.EntityId] + amount - PvpMaxHp, 0);
+            hp[low.EntityId] = Math.Min(hp[low.EntityId] + amount, PvpMaxHp);
+            encounters.Ingest(new CombatEvent
+            {
+                Time = now, Kind = EventKind.Heal, Source = healer, Target = low,
+                ActionId = Heals[rng.Next(Heals.Length)], Amount = amount, Overheal = over,
+            });
+        }
+    }
+
+    /// <summary>Usually the side's focus target while it stands (it moves on every few seconds), otherwise anyone still up.</summary>
+    private Actor? Pick(Actor[] side, double now, int focus)
+    {
+        var up = side.Where(a => Up(a, now)).ToList();
+        if (up.Count == 0) return null;
+        var preferred = side[(focus + (int)((now - started) / 12)) % side.Length];
+        return Up(preferred, now) && rng.NextDouble() < 0.7 ? preferred : up[rng.Next(up.Count)];
+    }
+
+    private void Hit(Actor source, Actor target, uint action, long amount, double now)
+    {
+        var crit = rng.NextDouble() < 0.15;
+        if (crit) amount = (long)(amount * 1.5);
+        var before = hp[target.EntityId];
+        encounters.Ingest(new CombatEvent
+        {
+            Time = now, Kind = EventKind.Damage, Source = source, Target = target, ActionId = action,
+            Amount = amount, Crit = crit, TargetHp = (uint)before, TargetMaxHp = (uint)PvpMaxHp,
+        });
+
+        hp[target.EntityId] = Math.Max(before - amount, 0);
+        if (hp[target.EntityId] > 0) return;
+
+        downUntil[target.EntityId] = now + Respawn;
+        encounters.KnockOut(target, now);
     }
 }
