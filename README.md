@@ -8,6 +8,7 @@
 
 A combat meter for Final Fantasy XIV built on [Dalamud](https://github.com/goatcorp/Dalamud), in the spirit of World of Warcraft's Details!. No external parser to start and nothing to attach: the numbers are read straight from the combat results your client already receives, and drawn in game.
 
+[![Website](https://img.shields.io/badge/Website-githixypluginffxiv.vercel.app-D6B068?logo=googlechrome&logoColor=white)](https://githixypluginffxiv.vercel.app/plugins/aethermeter)
 [![Patreon](https://img.shields.io/badge/Patreon-Support%20me-FF424D?logo=patreon&logoColor=white)](https://www.patreon.com/GitHixy)
 [![Discord](https://img.shields.io/badge/Discord-Join%20the%20server-5865F2?logo=discord&logoColor=white)](https://discord.gg/9kjUjWDBkJ)
 
